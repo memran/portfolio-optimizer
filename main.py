@@ -78,7 +78,45 @@ uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 if uploaded_file is not None:
     returns = load_returns(uploaded_file)
     asset_names = returns.columns.tolist()
-    
+
+    # ------------------ Portfolio Resizing ------------------
+    st.subheader("✂️ Portfolio Resizing")
+    total_assets = len(asset_names)
+
+    quality_scores = (returns.mean() * 12) / (returns.std() * np.sqrt(12))
+    quality_scores = quality_scores.replace([np.inf, -np.inf], np.nan).dropna()
+    quality_df = quality_scores.sort_values(ascending=False).to_frame("Sharpe (individual)")
+
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        n_keep = st.number_input(
+            "Number of stocks to keep",
+            min_value=2,
+            max_value=total_assets,
+            value=total_assets,
+            step=1,
+            help="Drops the lowest-quality stocks based on individual annualized Sharpe ratio (mean / std).",
+        )
+    with col_b:
+        st.caption(f"Ranking {total_assets} candidate assets by individual Sharpe ratio.")
+
+    kept_assets = quality_df.head(int(n_keep)).index.tolist()
+    dropped_assets = quality_df.tail(total_assets - int(n_keep)).index.tolist()
+
+    col_k, col_d = st.columns(2)
+    with col_k:
+        st.write(f"**✅ Kept ({len(kept_assets)})**")
+        st.dataframe(quality_df.loc[kept_assets].style.format({"Sharpe (individual)": "{:.3f}"}))
+    with col_d:
+        st.write(f"**❌ Dropped ({len(dropped_assets)})**")
+        if dropped_assets:
+            st.dataframe(quality_df.loc[dropped_assets].style.format({"Sharpe (individual)": "{:.3f}"}))
+        else:
+            st.info("No assets dropped — keeping all.")
+
+    asset_names = kept_assets
+    returns = returns[asset_names]
+
     # Annualize monthly returns & covariance
     mean_returns = returns.mean() * 12
     cov_matrix = returns.cov() * 12

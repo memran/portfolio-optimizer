@@ -113,7 +113,45 @@ if uploaded_file is not None:
     returns = compute_returns(prices[asset_cols], method='simple')
     st.subheader("📈 Monthly Returns (computed from prices)")
     st.dataframe(returns.head())
-    
+
+    # ------------------ Portfolio Resizing ------------------
+    st.subheader("✂️ Portfolio Resizing")
+    total_assets = len(asset_cols)
+
+    quality_scores = (returns.mean() * 12) / (returns.std() * np.sqrt(12))
+    quality_scores = quality_scores.replace([np.inf, -np.inf], np.nan).dropna()
+    quality_df = quality_scores.sort_values(ascending=False).to_frame("Sharpe (individual)")
+
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        n_keep = st.number_input(
+            "Number of stocks to keep",
+            min_value=2,
+            max_value=total_assets,
+            value=total_assets,
+            step=1,
+            help="Drops the lowest-quality stocks based on individual annualized Sharpe ratio (mean / std).",
+        )
+    with col_b:
+        st.caption(f"Ranking {total_assets} candidate assets by individual Sharpe ratio.")
+
+    kept_assets = quality_df.head(int(n_keep)).index.tolist()
+    dropped_assets = quality_df.tail(total_assets - int(n_keep)).index.tolist()
+
+    col_k, col_d = st.columns(2)
+    with col_k:
+        st.write(f"**✅ Kept ({len(kept_assets)})**")
+        st.dataframe(quality_df.loc[kept_assets].style.format({"Sharpe (individual)": "{:.3f}"}))
+    with col_d:
+        st.write(f"**❌ Dropped ({len(dropped_assets)})**")
+        if dropped_assets:
+            st.dataframe(quality_df.loc[dropped_assets].style.format({"Sharpe (individual)": "{:.3f}"}))
+        else:
+            st.info("No assets dropped — keeping all.")
+
+    asset_cols = kept_assets
+    returns = returns[asset_cols]
+
     # Annualize monthly returns & covariance
     mean_returns = returns.mean() * 12
     cov_matrix = returns.cov() * 12
@@ -155,7 +193,102 @@ if uploaded_file is not None:
     ax.legend()
     ax.grid(True)
     st.pyplot(fig)
-    
+
+    # ------------------ Backtest ------------------
+    st.header("💰 Backtest — Investment Value Over Time")
+    st.caption(
+        "Hypothetical buy-and-hold backtest: the investment amount is allocated at the "
+        "first date using the optimal weights above (no short selling) and held without rebalancing."
+    )
+
+    col_amt, col_info = st.columns([1, 2])
+    with col_amt:
+        investment_amount = st.number_input(
+            "Investment amount",
+            min_value=1.0,
+            value=10000.0,
+            step=1000.0,
+            format="%.2f",
+            help="Initial lump sum invested at the first available price date.",
+        )
+
+    bt_prices = prices[asset_cols].dropna(how='any')
+    if len(bt_prices) < 2:
+        st.warning("Not enough price observations for a backtest.")
+    else:
+        start_date = bt_prices.index[0]
+        end_date = bt_prices.index[-1]
+        n_periods = len(bt_prices) - 1
+        years = (end_date - start_date).days / 365.25
+
+        with col_info:
+            st.caption(
+                f"Backtest window: **{start_date.date()} → {end_date.date()}** "
+                f"({n_periods} periods, ≈ {years:.2f} years)."
+            )
+
+        normalized = bt_prices / bt_prices.iloc[0]
+        weights_series = pd.Series(opt_weights_no_short, index=asset_cols)
+        per_asset_value = normalized.multiply(weights_series, axis=1) * investment_amount
+        portfolio_value = per_asset_value.sum(axis=1)
+
+        final_value = portfolio_value.iloc[-1]
+        total_return = final_value / investment_amount - 1
+        cagr = (final_value / investment_amount) ** (1 / years) - 1 if years > 0 else np.nan
+        running_max = portfolio_value.cummax()
+        drawdown = portfolio_value / running_max - 1
+        max_drawdown = drawdown.min()
+        profit = final_value - investment_amount
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Initial", f"{investment_amount:,.2f}")
+        m2.metric("Final Value", f"{final_value:,.2f}", f"{profit:+,.2f}")
+        m3.metric("Total Return", f"{total_return:.2%}")
+        m4.metric("CAGR", f"{cagr:.2%}" if not np.isnan(cagr) else "n/a")
+        m5.metric("Max Drawdown", f"{max_drawdown:.2%}")
+
+        st.subheader("📈 Portfolio Value Over Time")
+        fig_bt, ax_bt = plt.subplots(figsize=(10, 5))
+        ax_bt.plot(portfolio_value.index, portfolio_value.values, 'b-', linewidth=2, label="Optimized Portfolio")
+
+        if benchmark_prices is not None:
+            bench_aligned = benchmark_prices.reindex(portfolio_value.index).dropna()
+            if len(bench_aligned) >= 2:
+                bench_value = bench_aligned / bench_aligned.iloc[0] * investment_amount
+                ax_bt.plot(bench_value.index, bench_value.values, 'orange', linestyle='--',
+                           linewidth=1.5, label=f"Benchmark ({benchmark_col})")
+
+        ax_bt.axhline(investment_amount, color='gray', linestyle=':', linewidth=1, label="Initial Investment")
+        ax_bt.set_xlabel("Date")
+        ax_bt.set_ylabel("Portfolio Value")
+        ax_bt.set_title("Buy-and-Hold Backtest")
+        ax_bt.legend()
+        ax_bt.grid(True, alpha=0.3)
+        st.pyplot(fig_bt)
+
+        st.subheader("🧾 Per-Asset Allocation & Final Value")
+        alloc_df = pd.DataFrame({
+            "Asset": asset_cols,
+            "Weight": opt_weights_no_short,
+            "Initial Allocation": opt_weights_no_short * investment_amount,
+            "Final Value": per_asset_value.iloc[-1].values,
+        })
+        alloc_df["Profit / Loss"] = alloc_df["Final Value"] - alloc_df["Initial Allocation"]
+        alloc_df["Return %"] = alloc_df["Final Value"] / alloc_df["Initial Allocation"] - 1
+        alloc_df = alloc_df[alloc_df["Weight"] > 0.001].sort_values("Weight", ascending=False)
+        st.dataframe(
+            alloc_df.style.format({
+                "Weight": "{:.2%}",
+                "Initial Allocation": "{:,.2f}",
+                "Final Value": "{:,.2f}",
+                "Profit / Loss": "{:+,.2f}",
+                "Return %": "{:.2%}",
+            })
+        )
+
+        bt_csv = portfolio_value.to_frame("Portfolio Value").to_csv().encode('utf-8')
+        st.download_button("Download Backtest Series (CSV)", bt_csv, "backtest_value.csv", "text/csv")
+
     # ------------------ Short selling allowed ------------------
     st.header("📊 Optimal Portfolio (Short Selling Allowed)")
     with st.expander("Show short selling analysis"):
