@@ -8,6 +8,18 @@ from scipy.optimize import minimize
 st.set_page_config(page_title="Portfolio Optimizer", layout="wide")
 st.title("📊 Portfolio Optimization from Price Data")
 
+# Sidebar: risk-free rate input
+st.sidebar.header("⚙️ Settings")
+risk_free_rate = st.sidebar.number_input(
+    "Risk-free rate (annual)",
+    min_value=0.0,
+    max_value=1.0,
+    value=0.0,
+    step=0.005,
+    format="%.4f",
+    help="Annualized risk-free rate used to compute the Sharpe ratio. Enter as a decimal (e.g., 0.04 for 4%).",
+)
+
 # -------------------------------------------------------------------
 # Helper functions
 # -------------------------------------------------------------------
@@ -49,14 +61,14 @@ def negative_sharpe(weights, mean_returns, cov_matrix, risk_free_rate=0):
     p_return, p_risk = portfolio_performance(weights, mean_returns, cov_matrix)
     return -(p_return - risk_free_rate) / p_risk
 
-def optimize_portfolio(mean_returns, cov_matrix, bounds):
+def optimize_portfolio(mean_returns, cov_matrix, bounds, risk_free_rate=0):
     num_assets = len(mean_returns)
     constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
     initial_weights = np.array(num_assets * [1 / num_assets])
     result = minimize(
         negative_sharpe,
         initial_weights,
-        args=(mean_returns, cov_matrix),
+        args=(mean_returns, cov_matrix, risk_free_rate),
         method='SLSQP',
         bounds=bounds,
         constraints=constraints
@@ -168,14 +180,14 @@ if uploaded_file is not None:
     # ------------------ No short selling ------------------
     st.header("🔒 Optimal Portfolio (No Short Selling)")
     bounds_no_short = tuple((0, 1) for _ in asset_cols)
-    opt_weights_no_short = optimize_portfolio(mean_returns, cov_matrix, bounds_no_short)
+    opt_weights_no_short = optimize_portfolio(mean_returns, cov_matrix, bounds_no_short, risk_free_rate)
     opt_return, opt_risk = portfolio_performance(opt_weights_no_short, mean_returns, cov_matrix)
-    sharpe = opt_return / opt_risk
-    
+    sharpe = (opt_return - risk_free_rate) / opt_risk if opt_risk > 0 else np.nan
+
     col1, col2, col3 = st.columns(3)
     col1.metric("Expected Annual Return", f"{opt_return:.2%}")
     col2.metric("Annual Volatility", f"{opt_risk:.2%}")
-    col3.metric("Sharpe Ratio (rf=0)", f"{sharpe:.3f}")
+    col3.metric(f"Sharpe Ratio (rf={risk_free_rate:.2%})", f"{sharpe:.3f}")
     
     weights_df = pd.DataFrame({"Asset": asset_cols, "Weight": opt_weights_no_short})
     weights_df = weights_df[weights_df["Weight"] > 0.001].sort_values("Weight", ascending=False)
@@ -293,10 +305,10 @@ if uploaded_file is not None:
     st.header("📊 Optimal Portfolio (Short Selling Allowed)")
     with st.expander("Show short selling analysis"):
         bounds_short = tuple((-1, 1) for _ in asset_cols)
-        opt_weights_short = optimize_portfolio(mean_returns, cov_matrix, bounds_short)
+        opt_weights_short = optimize_portfolio(mean_returns, cov_matrix, bounds_short, risk_free_rate)
         ret_short, risk_short = portfolio_performance(opt_weights_short, mean_returns, cov_matrix)
-        sharpe_short = ret_short / risk_short
-        
+        sharpe_short = (ret_short - risk_free_rate) / risk_short if risk_short > 0 else np.nan
+
         col1, col2, col3 = st.columns(3)
         col1.metric("Expected Return", f"{ret_short:.2%}")
         col2.metric("Volatility", f"{risk_short:.2%}")
@@ -333,4 +345,4 @@ if uploaded_file is not None:
     col1.download_button("Download No‑Short Weights", csv_no_short, "weights_no_short.csv", "text/csv")
     col2.download_button("Download Short‑Selling Weights", csv_short, "weights_short.csv", "text/csv")
     
-    st.caption("Annualized statistics are derived from monthly returns (×12). Risk‑free rate assumed 0%.")
+    st.caption(f"Annualized statistics are derived from monthly returns (×12). Risk‑free rate = {risk_free_rate:.2%}.")
