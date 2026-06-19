@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import seaborn as sns
-import networkx as nx
 from scipy.optimize import minimize
 from io import BytesIO
 from fpdf import FPDF

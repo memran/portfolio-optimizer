@@ -4,3 +4,5 @@ numpy>=1.24.0
 scipy>=1.10.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
+squarify>=0.4.3
+fpdf2>=2.7.0
