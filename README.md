@@ -4,6 +4,7 @@
 [![Streamlit](https://img.shields.io/badge/streamlit-1.28%2B-FF4B4B.svg)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Last Commit](https://img.shields.io/github/last-commit/memran/portfolio-optimizer.svg)](https://github.com/memran/portfolio-optimizer/commits/main)
+[![Streamlit App](https://img.shields.io/badge/Streamlit-Live-FF4B4B.svg)](https://portfolio-optimizer-nzrsddmhxnfxgznhckcaav.streamlit.app/)
 
 > A web-based portfolio optimization tool that computes the optimal asset allocation by maximizing the Sharpe ratio, plots the efficient frontier, and visualizes asset covariance — all from a CSV upload.
 
@@ -205,7 +206,9 @@ The efficient frontier is computed by sweeping target returns and minimizing por
 
 ---
 
-## ☁️ Deployment
+## ☁️ Live App & Deployment
+
+**Try it now:** [portfolio-optimizer.streamlit.app](https://portfolio-optimizer-nzrsddmhxnfxgznhckcaav.streamlit.app/)
 
 Deploy to **Streamlit Community Cloud** in three steps:
 
